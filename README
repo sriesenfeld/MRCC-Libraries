@@ -1,0 +1,44 @@
+Computing MRCC libraries and related types of DNA oligomer libraries
+
+SJ Riesenfeld
+Feb 2012
+
+An MRCC library is a DNA oligomer library that contains exactly one
+copy of exactly one representative for each k-bp sequence (k-mer) and
+its reverse complement. For double-stranded DNA experiments, it can be
+useful for a library to have this property. For even values of k
+greater than 2, however, it is not possible to output a single
+sequence with this property, i.e., there is no analog for a de Bruijn
+sequence in the context where each k-mer and its reverse complement
+are restricted to a single representative. It is possible to compute a
+set of sequences with this property, for set sizes that are much
+smaller than the number of k-mers (or reverse-complementary k-mer
+pairs). This code was developed to do that.
+
+The main program for computing such a library is
+"design_oligomers.pl". Basic documentation is accessible by typing
+"design_oligomers.pl -h" at the prompt. To see an example, you can
+type:
+
+perl design_oligomers.pl 
+
+at the command prompt, and the program will run with the default
+settings to create a library of 208 oligomers, each 15bp in length,
+for k=6, in an output file called "oligomer_library_design.txt". 
+
+An example of this output file is in
+"example_oligomer_lib_design.txt". There are 4,096 6-bp sequences, and
+each one *or* its reverse complement (but not both) appears exactly
+once in the output library of sequences.
+
+It is possible to use this software to produce a modified version of
+the library that takes into account the flanking sequences for a given
+experimental application. The flanking sequences introduce repetitions
+in k-mers across the junctions between oligomers and flanking
+sequence.The code attempts to minimize these reptitions and exploit
+them to reduce oligomer library size. However the output is not a true
+MRCC library, and flanking sequences are required to ensure coverage
+of all k-mers.
+
+Please see the program and module files for additional documentation.
+Questions? Contact sriesenfeld@gmail.com
