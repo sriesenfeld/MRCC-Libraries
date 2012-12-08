@@ -41,7 +41,6 @@ use warnings;
 use File::Spec;
 use Getopt::Std;
 
-# NOTE - check how lengths can be computed (compute_lengths needed?)
 use DNA_Manip qw (get_self_rev_comps generate_all_k_mers );
 use Seq_Utils qw (remove_sublist);
 use DNA_DeBruijnGraph_Utils qw(find_eulerian_pair check_connected check_degrees 
@@ -66,8 +65,17 @@ my $num_oligos = 208;   # number of oligomers for a true MRCC library,
 
 # the left (right) flanking sequence is assumed not to end (begin)
 # with 2 bases that are the same
-my $flank_l = 'CTCGAG';  # these are ignored to get an MRCC library
-my $flank_r = 'AGATCT';	 # (see option -f below).
+
+# my $flank_l = 'CTCGAG'; # if option -f is not selected: these
+my $flank_l='';		  # flanking sequences are ignored to compute an
+			  # MRCC library; then, if the seqs are defined 
+# my $flank_r = 'AGATCT'; # and not empty, they are concatenated to the
+my $flank_r='';		  # oligomers afterward for the purpose of counting
+			  # repeated $k-mers; the design validation
+			  # will not work once they are concatenated
+			  # if the flanking seqs do not have length $k
+			  # (also see option -f below)
+
 ################### 
 my $solnfile = 'oligomer_library_design.txt';
 my $histfile = 'design_histogram_info.txt';
@@ -124,9 +132,9 @@ if ($opts{'o'}) { $outfile = $opts{'o'};}
 ######## These variables affect now many times heuristic, randomized
 ######## processes are attempted (related to flanking-sequence
 ######## incorporation).
-my $num_trials_longppaths = 10;
-my $num_trials_pconstructs = 5;
-my $num_trials_cycle = 10;
+my $num_trials_longppaths = 6;
+my $num_trials_pconstructs = 3;
+my $num_trials_cycle = 5;
 my $num_trials_break_cycle = 3;
 # can increase this
 my $num_trials_build_extras = 3;
@@ -136,6 +144,14 @@ $flank_seq_flag = $opts{'f'};
 if ($opts{'l'}) { $flank_l = $opts{'l'};}
 if ($opts{'r'}) { $flank_r = $opts{'r'};}
 my $curdir = File::Spec->curdir();
+my $k_even;
+if ( ($k %2) == 0) {
+    $k_even=1;
+} 
+my $n_palindromes = (($k_even) ? (2**($k-1)) : 0);
+if (($k_even) && ($num_oligos <= $n_palindromes)) {
+    die ("Option -n requires a value larger than ".$n_palindromes.", the number of palindromes!")
+}
 if ($outdir=$opts{'d'}) {
     unless ( (-d $outdir) and (-w $outdir)) {
 	mkdir($outdir) or die "Cannot find, write, or make directory $outdir.\n";
@@ -145,9 +161,19 @@ if (!$outdir) { $outdir = $curdir; }
 
 # Last two DNA bases of left flanking sequence and first two DNA bases
 # of right flanking sequence
-my $db_str_l = substr($flank_l, ($k-2), 2);
-my $db_str_r = substr($flank_r, 0, 2);
-
+my ($db_str_l, $db_str_r);
+if ($flank_seq_flag) {
+    if (!($flank_l)) {
+	die "Left flanking sequence is not defined or is empty";
+    } else {
+	$db_str_l = substr($flank_l, ($k-2), 2);
+    }
+    if (!($flank_r)) {
+	die "Right flanking sequence is not defined or is empty";
+    } else {
+	$db_str_r = substr($flank_r, 0, 2);
+    }
+}
 my ($out_fh, $soln_fh, $hist_out_fh);
 $outfile = File::Spec->catfile($outdir, $outfile);
 open ($out_fh, ">$outfile") or die "Cannot open $outfile for writing: $!\n";
@@ -156,7 +182,8 @@ print "\nInformation about this design process is being written in file $outfile
 # if the target number of oligos does not result in an integral oligo length, 
 # two lengths are used; the longer length is 1+shorter length.
 print $out_fh "Computing the correct oligomer length(s).\n";
-my ($oligo_len_short, $num_oligos_short, $num_oligos_long) = # desired length, num of oligomers (from $num_oligos)
+# desired length, num of oligomers (from $num_oligos)
+my ($oligo_len_short, $num_oligos_short, $num_oligos_long) = 
     compute_lengths($k, $num_oligos, $out_fh); 
 my $num_oligos_cur_limit = $num_oligos_short;
 my $oligo_len = $oligo_len_short;
@@ -183,15 +210,18 @@ my @short_p_palindromes = %{$short_pmatching_hr};
 my @short_ppkeys = keys(%{$short_pmatching_hr});
 remove_sublist(\@short_p_palindromes, \@s_rev_comps);
 remove_sublist(\@short_p_palindromes, \@kmers);
-print $out_fh "\nThere are ".scalar(@short_p_palindromes)." palindromes\n".
-    "   (".join(' ',@short_p_palindromes).")\n".
-    "   that can be paired so that pairs have a connecting path of length 2\n".
-    "   (including start and end edges).\n".
-    "   These paths will be inserted into the big forward cycle computed later.\n";
-
+if ($k_even) {
+    print $out_fh "\nThere are ".scalar(@short_p_palindromes)." palindromes\n".
+	"   (".join(' ',@short_p_palindromes).")\n".
+	"   that can be paired so that pairs have a connecting path of length 2\n".
+	"   (including start and end edges).\n".
+	"   These paths will be inserted into the big forward cycle computed later.\n";
+}
 # build constructs containing remaining palindromes:
 # find longer paths that take up an entire construct between pairs of remaining palindromes.
-print $out_fh "\nBuilding the constructs that contain the remaining palindromes...\n";
+if ($k_even) {
+    print $out_fh "\nBuilding the constructs that contain the remaining palindromes...\n";
+}
 my ($pconstructs_ar, $pconstr_fw_edges_ar, $pconstr_rc_edges_ar, $pconstr_palindromes_ar);
 if ($flank_seq_flag) {
     ($pconstructs_ar, $pconstr_fw_edges_ar, $pconstr_rc_edges_ar, $pconstr_palindromes_ar)= 
@@ -210,16 +240,16 @@ if (($oligo_len == $oligo_len_short) and  (scalar(@{$pconstructs_ar}) >= $num_ol
 } else {
     $num_oligos_cur_limit -= scalar(@{$pconstructs_ar});
 }
-print $out_fh ''. scalar(@$pconstructs_ar). " connstructs built, containing ".
-    scalar(@{$pconstr_palindromes_ar})." palindromes.\n";
-print $out_fh "These constructs also contain ".scalar(@$pconstr_fw_edges_ar)." non-palindromic edges.\n";
-
-if ($out_fh != \*STDOUT) {
-    print "\n". scalar(@$pconstructs_ar). " oligomer designs constructed, corresponding to paths between pairs among the ".
-	scalar(@{$pconstr_palindromes_ar})." isolated palindrome edges.\n";
+if ($k_even) {
+    print $out_fh ''. scalar(@$pconstructs_ar). " constructs built, containing ".
+	scalar(@{$pconstr_palindromes_ar})." palindromes.\n";
+    print $out_fh "These constructs also contain ".scalar(@$pconstr_fw_edges_ar)." non-palindromic edges.\n";
+    if ($out_fh != \*STDOUT) {
+	print "\n". scalar(@$pconstructs_ar). " oligomers designed that correspond to paths between pairs among the ".
+	    scalar(@{$pconstr_palindromes_ar})." isolated palindrome edges.\n";
+    }
+    print_construct_paths($pconstructs_ar, $out_fh);
 }
-print_construct_paths($pconstructs_ar, $out_fh);
-
 if ( scalar(@$pconstr_fw_edges_ar) != scalar(@$pconstr_rc_edges_ar) ) {
     die "Expecting same number of (non-palindromic) forward and reverse-complement edges to be used in building constructs!\n";
 }
@@ -234,19 +264,21 @@ if (scalar(@s_rev_comps)) {
 
 
 my $num_remaining = scalar(@kmers);
-print $out_fh "After removing the edges in these constructs and their reverse complements from the graph,\n".
-    "   there are $num_remaining edges remaining in graph.\n";
-
+if ($k_even) {
+    print $out_fh "After removing the edges in these constructs and their reverse complements from the graph,\n".
+	"   there are $num_remaining edges remaining in graph.\n";
 # check that remaining graph is Eulerian
-print $out_fh "\nChecking that remaining graph is Eulerian...\n";
+    print $out_fh "\nChecking that remaining graph is Eulerian...\n";
+}
 my $conn=check_connected($k, \@kmers, undef, $out_fh);
 my $deg_good=check_degrees($k, \@kmers, $out_fh);
 if (!$conn or !$deg_good) {
     die "Remaining graph is not Eulerian.\n";
 } else {
-    print $out_fh "Yes, graph is Eulerian.\n";
+    print $out_fh "Checked: Graph is Eulerian.\n";
 }
-print "Computing a partitioning of the rest of the graph into two reverse-complementary cycles.\n";
+print "Computing a partitioning of ".
+    ($k_even ? "the rest of ":''). "the graph into two reverse-complementary cycles.\n";
 my ($big_cycle_ar, $rc_big_cycle_ar);    
 for (my $trial=0; $trial < $num_trials_cycle; $trial++) {
     print $out_fh "\nFinding an \"Eulerian pair\" of cycles:  trial $trial.\n";
@@ -281,13 +313,18 @@ for (my $trial=0; $trial < $num_trials_cycle; $trial++) {
 
 # find insertion points for the pairs of palindromes that have path length 2;
 # pick randomly among possibilities, and insert them.
-print $out_fh "\nInserting the ". scalar(@short_ppkeys). " palindrome paths of length 2 into the cycle...\n";
-my ($cycle_insert_pts_sp_hr, $p_insert_pts_sp_hr) = find_insertion_points(\@short_ppkeys, 
-									  $big_cycle_ar, 
-									  $short_pmatching_hr, $out_fh);
-print_insertion_points($big_cycle_ar, $cycle_insert_pts_sp_hr, $p_insert_pts_sp_hr, $short_ppaths_hr, $out_fh);
-$big_cycle_ar = insert_short_ppaths($big_cycle_ar, $short_pmatching_hr, $p_insert_pts_sp_hr, $short_ppaths_hr, $out_fh);
-print $out_fh "\nForward cycle with short palindrome paths inserted has ". scalar(@$big_cycle_ar)." $k-mers.\n";
+if ($k_even) {
+    print $out_fh "\nInserting the ". scalar(@short_ppkeys). " palindrome paths of length 2 into the cycle...\n";
+    my ($cycle_insert_pts_sp_hr, $p_insert_pts_sp_hr) = find_insertion_points(\@short_ppkeys, 
+									      $big_cycle_ar, 
+									      $short_pmatching_hr, $out_fh);
+    print_insertion_points($big_cycle_ar, $cycle_insert_pts_sp_hr, $p_insert_pts_sp_hr, 
+			   $short_ppaths_hr, $out_fh);
+    $big_cycle_ar = insert_short_ppaths($big_cycle_ar, $short_pmatching_hr, $p_insert_pts_sp_hr, 
+					$short_ppaths_hr, $out_fh);
+    print $out_fh "\nForward cycle with short palindrome paths inserted has ". 
+	scalar(@$big_cycle_ar)." $k-mers.\n";
+}
 my ($reg_constructs_ar, $extra_paths_ar, $total_rem_edges);
 print $out_fh "\nBreaking cycle up into constructs...\n";
 if ($flank_seq_flag) {
@@ -338,10 +375,11 @@ if (!$flank_seq_flag and (scalar(@all_constructs) != $num_oligos) ) {
 my $start_index_reg_constructs = scalar(@{$pconstructs_ar});
 my $start_index_extra_constructs = scalar(@{$pconstructs_ar}) + scalar(@{$reg_constructs_ar});
 print $out_fh "\nPrinting paths for all constructs now:  \n".
-    "   0-".($start_index_reg_constructs-1)." index palindrome constructs;\n".
+    (scalar(@{$pconstructs_ar}) ? 
+     "   0-".($start_index_reg_constructs-1)." index palindrome constructs;\n" : '').
     "   $start_index_reg_constructs-".($start_index_extra_constructs-1)." index regular constructs;\n";
-    if ($extra_constructs_ar) {
-	print $out_fh
+if ($extra_constructs_ar) {
+    print $out_fh
 	"   $start_index_extra_constructs-".$#all_constructs.
 	" index constructs built from partial paths (may contain repeats).\n";
 }
@@ -365,16 +403,17 @@ if ($flank_seq_flag) {
 if ($bad_flag) {    
     die "Constructs do not constitute a valid solution!\n";
 } else {
-    print $out_fh "\nConstruct design has been validated.\n";
+    print $out_fh "\nConstruct design has been validated!\n";
+    warn "\nConstruct design has been validated!\n";
 }
 
 if ($histfile=$opts{'a'}) {
     $histfile = File::Spec->catfile($outdir, $histfile);
     open ($hist_out_fh, ">$histfile") or die "Cannot open $histfile for write!";
     print $out_fh "\nVerifying construct design -- \n".
-	"   histogram data for repeated $k-mers (analyzed with flanking sequences) will be printed in $histfile.\n";
+	"   histogram data for repeated $k-mers (analyzed with flanking sequences, if specified) will be printed in $histfile.\n";
     print "\nVerifying construct design -- \n".
-	"   histogram data for repeated $k-mers (analyzed with flanking sequences) will be printed in $histfile.\n";
+	"   histogram data for repeated $k-mers (analyzed with flanking sequences, if specified) will be printed in $histfile.\n";
 }
 if (!$hist_out_fh) {
     $hist_out_fh = $out_fh;
@@ -382,38 +421,42 @@ if (!$hist_out_fh) {
 	"   histogram data for repeated $k-mers (analyzed with flanking sequences) will be printed.\n";
 }
 my $all_constructs_wf_ar;
-print $out_fh "\nAdding flanking sequences to constructs in order to count repeats.\n";
+
 if ($flank_seq_flag) {
+    print $out_fh "\nAdding flanking sequences to constructs in order to count repeats.\n";
     print $out_fh "Some of the paths in the design may be appropriately shortened;\n"
 }
-$all_constructs_wf_ar =
-    add_flanking_seqs_to_constructs($k, $oligo_len_short, \@all_constructs, $flank_l, $flank_r, $out_fh, 
-				    $num_oligos_short, 1);
-print $out_fh "\nPrinting the ".scalar(@{$all_constructs_wf_ar})." construct paths with flanking sequences.\n";
-print_construct_paths($all_constructs_wf_ar, $out_fh);
-
-print $out_fh "Validating the construction with the flanking sequences added and analyzing repeated $k-mers.\n";
-my ($edges_by_construct_wf_hr, $repeat_edges_wf_hr);
-
-if ($flank_seq_flag) {
-    ($bad_flag, $edges_by_construct_wf_hr, $repeat_edges_wf_hr) =
-	check_constructs($k, $all_constructs_wf_ar, 
-			 0, $out_fh, $hist_out_fh, 
-			 1, undef, undef, 
-			 undef, undef, undef, $num_oligos_short);		     
-} else {
-    ($bad_flag, $edges_by_construct_wf_hr, $repeat_edges_wf_hr) =
-	check_constructs($k, $all_constructs_wf_ar, 
-			 ($oligo_len_short+length($flank_l)+length($flank_r)), $out_fh, $hist_out_fh, 
-			 1, undef, undef, 
-			 undef, undef, undef, $num_oligos_short);		     
+if (defined ($flank_l) && ($flank_l ne '') && defined ($flank_r) && ($flank_r ne '')) {
+    $all_constructs_wf_ar =
+	add_flanking_seqs_to_constructs($k, $oligo_len_short, \@all_constructs, $flank_l, $flank_r, $out_fh, 
+					$num_oligos_short, 1);
+    print $out_fh "\nPrinting the ".scalar(@{$all_constructs_wf_ar})." construct paths with flanking sequences.\n";
+    print_construct_paths($all_constructs_wf_ar, $out_fh);
+    
+    print $out_fh "Validating the construction with the flanking sequences added and analyzing repeated $k-mers.\n";
+    my ($edges_by_construct_wf_hr, $repeat_edges_wf_hr);
+    
+    if ($flank_seq_flag) {
+	($bad_flag, $edges_by_construct_wf_hr, $repeat_edges_wf_hr) =
+	    check_constructs($k, $all_constructs_wf_ar, 
+			     0, $out_fh, $hist_out_fh, 
+			     1, undef, undef, 
+			     undef, undef, undef, $num_oligos_short);		     
+    } else {
+	($bad_flag, $edges_by_construct_wf_hr, $repeat_edges_wf_hr) =
+	    check_constructs($k, $all_constructs_wf_ar, 
+			     ($oligo_len_short+length($flank_l)+length($flank_r)), 
+			     $out_fh, $hist_out_fh, 
+			     1, undef, undef, 
+			     undef, undef, undef, $num_oligos_short);		     
+    }
+    if ($bad_flag) {    
+	warn "Warning: Constructs with flanking sequences added may not constitute a valid solution!\n";
+	print $out_fh "Warning: Constructs with flanking sequences added may not constitute a valid solution!\n";
+    } else {
+	print $out_fh "\nConstruct design with flanking sequences added has been validated.\n";
+    }
 }
-if ($bad_flag) {    
-    die "Constructs with flanking sequences added do not constitute a valid solution!\n";
-} else {
-    print $out_fh "\nConstruct design with flanking sequences added has been validated.\n";
-}
-
 $solnfile = File::Spec->catfile($outdir, $solnfile);
 open ($soln_fh, ">$solnfile") or die "Cannot open $solnfile for write!";
 print $out_fh "\nPrinting construct design (without flanking sequence) in file $solnfile.\n";
@@ -423,5 +466,6 @@ if ($flank_seq_flag) {
 } else {
     print_constructs($k, \@all_constructs, $soln_fh, $oligo_len_short, undef, undef, $num_oligos_short);
 }
-print "\nComplete oligomer library design printed (without flanking sequence) in file ".$solnfile.".\n\n";
+print "\nComplete oligomer library of ".scalar(@all_constructs)." constructs ".
+    "printed (without flanking sequence) in file ".$solnfile.".\n\n";
 

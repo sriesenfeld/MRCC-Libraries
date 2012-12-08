@@ -343,32 +343,41 @@ sub compute_pconstructs($$$$ $$;$$$$$) {
     if ($db_str_r) {
 	$fb_r = substr($db_str_r, 0, 1);
     }
-    my $pathlen = $construct_len - ($k-1);
+    my $short_construct_len = $construct_len;
     my @pconstructs;
     my @used_palindromes;
     my @used_fw_edges;
     my @used_rc_edges;    
     my $countc;
-    print $out_fh "\nIn compute_pconstructs, path len is $pathlen, and "
+
+    print $out_fh "\nIn compute_pconstructs, "
 	. scalar(@$palindromes_ar)." palindromes to be used.\n";
+    if ( ($k % 2) != 0) { # $k is odd, no palindromes
+	return (\@pconstructs, \@used_fw_edges, \@used_rc_edges, \@used_palindromes);
+    }
     for (my $trial=0; $trial< $num_trials; $trial++ ) {	
+	$construct_len = $short_construct_len;
+	my $pathlen = $construct_len - ($k-1);
 	my @rem_palindromes = @{$palindromes_ar};
-	if ($num_oligos_short == scalar(@pconstructs)) {
-	    print $out_fh "Constructed all oligomers of length $construct_len.\n";
-	    $construct_len++;
-	    $pathlen++;
-	    print $out_fh "Target construct length now increased to $construct_len.\n";
-	}
 	$countc=0;
 	@pconstructs=();
 	@used_palindromes=();
 	@used_fw_edges=();
 	@used_rc_edges=();
 	print $out_fh "\nTrial number $trial.\n";
+	print $out_fh "Path len ".(defined($num_oligos_short) ? "for first $num_oligos_short constructs ": '').
+	    "is $pathlen.\n";
 	while (scalar(@rem_palindromes)) {
+	    if (defined($num_oligos_short) && ($num_oligos_short == scalar(@pconstructs))) {
+		print $out_fh "\nConstructed all oligomers of length $construct_len.\n";
+		$construct_len = $short_construct_len+1;
+		$pathlen=$construct_len - ($k-1);
+		print $out_fh "Target construct length now increased to $construct_len.\n";
+	    }
+	    print $out_fh "\n".scalar(@rem_palindromes)." unpaired palindromes remaining.\n";
 	    my $palindrome=choose_random_elt(\@rem_palindromes);
 	    remove($palindrome, \@rem_palindromes);
-	    print $out_fh "\nCurrent palindrome: $palindrome\n";
+	    print $out_fh "Current palindrome: $palindrome\n";
 	    push(@used_palindromes, $palindrome);
 	    while (scalar(@rem_palindromes)) {
 		my $target = choose_random_elt(\@rem_palindromes);
@@ -413,7 +422,8 @@ sub compute_pconstructs($$$$ $$;$$$$$) {
 	    if ($pconstructs[$countc]) {
 		$countc++;
 	    } elsif ($trial == ($num_trials-1)) {
-		die "Could not build a construct starting with palindrome $palindrome.\n";
+		die "Could not build a construct starting with palindrome $palindrome.\n".
+		    "Consider increasing the target number of constructs if it is close to the number of palindromes or decreasing it if it is close to the total number of $k-mers.";
 	    } else {
 		last;
 	    }
@@ -486,7 +496,7 @@ sub get_ppath($$$;$$$ $$$) {
 	    die "Specify available edges for computing longer ppaths!\n";
 	}
 	if ($total_path_len < ($k+1)) {
-	    die "Desired length for ppath should be at least ". ($k+1). "!\n";
+	    die "Desired length for ppath should be at least ". ($k+1). "! Consider using a smaller target number of oligomers.\n";
 	}
 	$extra_len = $total_path_len-($k+1);
     }
@@ -510,7 +520,7 @@ sub get_ppath($$$;$$$ $$$) {
     for (my $i=0; $i < $extra_len; $i++) {
 	my @matches=get_matches($head, 1, $edges_ar);
 	if (!(scalar(@matches))) {
-	    warn "In get_ppath:  no edges out of $head!\n";
+	    warn "Warning: In get_ppath:  no edges out of $head!\n";
 	    @ppath=();
 	    return \@ppath;
 	}
@@ -524,7 +534,8 @@ sub get_ppath($$$;$$$ $$$) {
 	    if (scalar(@matches)) {
 		$cur_edge=choose_random_elt(\@matches);
 	    } else {
-		warn "In get_ppath:  Cannot find unused, non-palindromic edge out of $head.\n";
+		# Make this a print instead?
+		warn "Warning: In get_ppath:  Cannot find unused, non-palindromic edge out of $head.\n";
 		@ppath=();
 		return \@ppath;
 	    }

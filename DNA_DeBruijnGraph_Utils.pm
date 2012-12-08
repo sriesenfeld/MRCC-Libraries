@@ -2245,7 +2245,12 @@ sub compute_lengths ($$;$) {
     if (!$out_fh) {
 	$out_fh = \*STDOUT;
     }
-    my $num_kmers = (4**$k + 2**$k)/2;
+    my $num_kmers;
+    if ( ($k % 2) == 0) {  # $k is even
+	$num_kmers = (4**$k + 2**$k)/2;
+    } else {
+	$num_kmers = (4**$k)/2;
+    }
     my $len = ($num_kmers/$num_pieces) + $k-1;
     my $len_floor = floor($len);
     my $len_ceil = ceil($len);
